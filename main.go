@@ -37,11 +37,14 @@ var (
 	unlink  bool
 	match   string
 	recent  time.Duration
+
+	bounds Bounds
+	xymon  Xymon
 )
 
-func Process(bounds Bounds, xymon Xymon, f string) error {
+func Process(path string) error {
 	// decode cusp file ...
-	c, err := DecodeCusp(f)
+	c, err := DecodeCusp(path)
 	if err != nil {
 		return err
 	}
@@ -54,90 +57,115 @@ func Process(bounds Bounds, xymon Xymon, f string) error {
 	if t.Before(time.Now().UTC().Add(-recent)) {
 		return errors.New("file too old")
 	}
-
 	// recover xymon metrics
 	metrics := c.Xymon(xymon.Host, xymon.Valid, bounds)
 	for _, m := range metrics {
+		if verbose {
+			log.Print(m.Report())
+		}
 		m.SendReport(xymon.Server)
 	}
 
 	return nil
 }
 
-func main() {
+func Walk(path string, info os.FileInfo, err error) error {
+	if err != nil {
+		return err
+	}
 
-	b := Bounds{
+	if verbose {
+		log.Printf("check: %s\n", path)
+	}
+
+	m, err := filepath.Match(match, filepath.Base(path))
+	if err != nil {
+		return err
+	}
+	if !m {
+		if verbose {
+			log.Printf("skip: %s\n", path)
+		}
+		return nil
+	}
+
+	if verbose {
+		log.Printf("process: %s\n", path)
+	}
+	err = Process(path)
+	if err != nil {
+		log.Println(err)
+	}
+
+	if unlink {
+		if verbose {
+			log.Printf("unlink: %s\n", path)
+		}
+		if !dryrun {
+			err = os.Remove(path)
+			if err != nil {
+				log.Println(err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func init() {
+
+	bounds = Bounds{
 		PreEvent:       40.0,
 		PostEvent:      60.0,
 		SamplingRate:   200.0,
 		ClockWarning:   50.0,
 		ClockError:     30.0,
-		StorageWarning: 10,
+		StorageWarning: 50,
 		StorageError:   10,
 		VoltageWarning: 11.5,
 		VoltageError:   11.0,
 	}
 
-	x := Xymon{
+	xymon = Xymon{
 		Host:   "unknown",
 		Server: "localhost:1984",
 		Valid:  2 * time.Hour,
 	}
+}
+
+func main() {
 
 	flag.BoolVar(&verbose, "verbose", false, "make noise")
 	flag.BoolVar(&dryrun, "dry-run", false, "don't actually send the messages")
 	flag.BoolVar(&unlink, "unlink", false, "remove file after processing")
-	flag.StringVar(&match, "match", "*.xml", "provide file matching template")
+	flag.StringVar(&match, "match", "Report_*.xml", "provide file matching template")
 	flag.DurationVar(&recent, "recent", 24*time.Hour, "checkin file minimum age")
 
-	flag.StringVar(&x.Server, "xymon", x.Server, "provide a xymon server address")
-	flag.DurationVar(&x.Valid, "valid", x.Valid, "checkin validity")
-	flag.StringVar(&x.Host, "host", x.Host, "provide a xymon host name")
+	flag.StringVar(&xymon.Server, "xymon", xymon.Server, "provide a xymon server address")
+	flag.DurationVar(&xymon.Valid, "valid", xymon.Valid, "checkin validity")
+	flag.StringVar(&xymon.Host, "host", xymon.Host, "provide a xymon host name")
 
-	flag.Float64Var(&b.PreEvent, "pre", b.PreEvent, "expected pre-event time")
-	flag.Float64Var(&b.PostEvent, "post", b.PostEvent, "expected post-event time")
-	flag.Float64Var(&b.SamplingRate, "rate", b.SamplingRate, "expected sampling rate")
-	flag.Float64Var(&b.StorageWarning, "storage-warning", b.StorageWarning, "provide a storage warning level in Mbytes")
-	flag.Float64Var(&b.StorageError, "storage-error", b.StorageWarning, "provide a storage error level in Mbytes")
-	flag.Float64Var(&b.VoltageWarning, "voltage-warning", b.VoltageWarning, "provide a warning voltage level")
-	flag.Float64Var(&b.VoltageError, "voltage-error", b.VoltageError, "provide a voltage error level")
-	flag.Float64Var(&b.ClockWarning, "clock-warning", b.ClockWarning, "provide a clock warning quality")
-	flag.Float64Var(&b.ClockError, "clock-error", b.ClockError, "provide a clock error quality")
+	flag.Float64Var(&bounds.PreEvent, "pre", bounds.PreEvent, "expected pre-event time")
+	flag.Float64Var(&bounds.PostEvent, "post", bounds.PostEvent, "expected post-event time")
+	flag.Float64Var(&bounds.SamplingRate, "rate", bounds.SamplingRate, "expected sampling rate")
+	flag.Float64Var(&bounds.StorageWarning, "storage-warning", bounds.StorageWarning, "provide a storage warning level in Mbytes")
+	flag.Float64Var(&bounds.StorageError, "storage-error", bounds.StorageWarning, "provide a storage error level in Mbytes")
+	flag.Float64Var(&bounds.VoltageWarning, "voltage-warning", bounds.VoltageWarning, "provide a warning voltage level")
+	flag.Float64Var(&bounds.VoltageError, "voltage-error", bounds.VoltageError, "provide a voltage error level")
+	flag.Float64Var(&bounds.ClockWarning, "clock-warning", bounds.ClockWarning, "provide a clock warning quality")
+	flag.Float64Var(&bounds.ClockError, "clock-error", bounds.ClockError, "provide a clock error quality")
 
 	flag.Parse()
 
-	// run through the given files
-	for _, f := range flag.Args() {
-		log.Printf("checking file: %s\n", f)
+	// run through the given directories ...
+	for _, d := range flag.Args() {
+		log.Printf("walking directory: %s\n", d)
 
-		// check that the filenames match ...
-		_, err := filepath.Match(match, filepath.Base(f))
+		err := filepath.Walk(d, Walk)
 		if err != nil {
-			log.Printf("skipping unmatched file: %s\n", f)
-			continue
-		}
+			log.Printf("[%s] %s\n", d, err)
 
-		// check that they exist ...
-		log.Printf("processing file: %s\n", f)
-		if _, err := os.Stat(f); os.IsNotExist(err) {
-			log.Printf("file missing: %s, skipping\n", f)
-			continue
 		}
-
-		if err := Process(b, x, f); err != nil {
-			log.Printf("processing error: %s [%s]\n", f, err)
-		}
-
-		if unlink {
-			log.Printf("unlinking file: %s\n", f)
-			if !dryrun {
-				err = os.Remove(f)
-				if err != nil {
-					log.Println(err)
-				}
-			}
-		}
-
 	}
 
 }
