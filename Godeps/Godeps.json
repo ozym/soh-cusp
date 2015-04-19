@@ -4,7 +4,7 @@
 	"Deps": [
 		{
 			"ImportPath": "github.com/ozym/soh",
-			"Rev": "fb15fc3acc6b3dece7482b2b3a940b554002e757"
+			"Rev": "44966377a7304e1940cc1e6ca6794973354ea805"
 		}
 	]
 }

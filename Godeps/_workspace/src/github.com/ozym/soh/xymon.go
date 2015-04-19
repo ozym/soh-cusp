@@ -65,14 +65,18 @@ func (x *Xymon) SendReport(server string) error {
 		host = net.JoinHostPort(server, "1984")
 	}
 
-	conn, err := net.Dial("udp", host)
+	addr, err := net.ResolveTCPAddr("tcp", host)
+	if err != nil {
+		return err
+	}
+
+	conn, err := net.DialTCP("tcp", nil, addr)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
-	buf := []byte(x.Report())
-	_, err = conn.Write(buf)
+	_, err = conn.Write([]byte(x.Report()))
 	if err != nil {
 		return err
 	}
