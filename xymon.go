@@ -154,10 +154,10 @@ func (c *Cusp) Xymon(host string, valid time.Duration, bounds Bounds) []soh.Xymo
 	s, err := c.Storage()
 	if err == nil {
 		q := "green"
-		if v < (bounds.StorageWarning * 1024) {
+		if (float64)(s) < (bounds.StorageWarning * 1024) {
 			q = "yellow"
 		}
-		if v < (bounds.StorageError * 1024) {
+		if (float64)(s) < (bounds.StorageError * 1024) {
 			q = "red"
 		}
 		x = append(x, soh.Xymon{

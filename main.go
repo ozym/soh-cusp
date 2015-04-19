@@ -120,8 +120,8 @@ func init() {
 		SamplingRate:   200.0,
 		ClockWarning:   50.0,
 		ClockError:     30.0,
-		StorageWarning: 50,
-		StorageError:   10,
+		StorageWarning: 100,
+		StorageError:   50,
 		VoltageWarning: 11.5,
 		VoltageError:   11.0,
 	}
